@@ -1,0 +1,19 @@
+{
+  "name": "adofai-hitsound",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "audio-buffer-utils": "^5.1.2",
+    "node-wav": "^0.0.2",
+    "node-web-audio-api": "^1.0.4",
+    "web-audio-api": "^0.2.2"
+  }
+}

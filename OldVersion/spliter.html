@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hitsound Generater</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 30px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            width: 100%;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        input[type="file"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-top: 5px;
+        }
+
+        button {
+            padding: 12px 24px;
+            background: #2ecc71;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s ease;
+        }
+
+        button:hover {
+            background: #27ae60;
+        }
+
+        audio {
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+
+        h3 {
+            color: #333;
+            margin-top: 30px;
+        }
+
+        #timePointCount {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        #progressBar {
+            width: 100%;
+            background-color: #f3f3f3;
+            border-radius: 8px;
+            margin-top: 10px;
+            display: none;
+        }
+
+        #progress {
+            width: 0%;
+            height: 30px;
+            background-color: #2ecc71;
+            text-align: center;
+            line-height: 30px;
+            color: white;
+            border-radius: 8px;
+        }
+
+        #progressText {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>打拍音生成器</h2>
+        <div class="form-group">
+            <label>上传时间文件(JSON)</label>
+            <input type="file" id="timeFile" accept="application/json" />
+            <p>Array文件</p>
+            <div id="timePointCount"></div>
+        </div>
+        <div class="form-group">
+            <label>上传音频文件</label>
+            <input type="file" id="audioFile" accept="audio/*" />
+        </div>
+        <div class="form-group">
+            <label>目标总时长（秒）：</label>
+            <input type="number" id="totalDuration" min="1" step="0.1" />
+            <h3>↑音频没有长度要求请留空!</h3>
+            <br />
+            <p>设置最终混合音频的总长度（空白部分填充静音）</p>
+        </div>
+        <div class="form-group">
+            <label>输出采样率（Hz）：</label>
+            <select id="sampleRate">
+                <option value="192000">192000(质量最高,导出速度最慢)</option>
+                <option value="96000">96000 (录音室音质)</option>
+                <option value="48000">48000 (数字音频)</option>
+                <option value="44100">44100 (标准 CD)</option>
+                <option value="22050">22050 (低质量)</option>
+                <option value="16000">16000 (电话音质)</option>
+                <option value="8000">8000 (窄宽电话音质，最快)</option>
+            </select>
+            <p>选择输出音频的采样率(采样率越高,音频文件越大)</p>
+        </div>
+        <button onclick="processAudio()">处理并混合</button>
+        <div id="progressBar">
+            <div id="progress"></div>
+        </div>
+        <div id="progressText"></div>
+        <div id="preview" style="margin-top: 20px;">
+            <h3>处理后预览</h3>
+            <audio id="resultAudio" controls></audio>
+            <button id="downloadBtn" style="display: none; margin-top: 10px;" onclick="downloadAudio()">下载混合音频</button>
+            <div id="audioInfo" style="margin-top: 10px; font-size: 0.9em; color: #666;"></div>
+        </div>
+    </div>
+
+    <script>
+        let audioContext;
+        let originalBuffer;     // 原始音频数据
+        let timePoints = [];    // 解析后的时间点数组
+
+        // 初始化 AudioContext
+        document.addEventListener('click', () => {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }, { once: true });
+
+        // 读取时间点文件
+        document.getElementById('timeFile').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const content = event.target.result;
+                timePoints = JSON.parse(content);
+                console.log('解析的时间点：', timePoints);
+                document.getElementById('timePointCount').textContent = `时间点数量：${timePoints.length}`;
+            };
+            reader.readAsText(file);
+        });
+
+        // 读取音频文件
+        document.getElementById('audioFile').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const arrayBuffer = event.target.result;
+                audioContext.decodeAudioData(arrayBuffer).then((buffer) => {
+                    originalBuffer = buffer;
+                    console.log('音频加载完成，时长：', buffer.duration, '秒，采样率：', buffer.sampleRate, 'Hz');
+                    document.getElementById('audioInfo').textContent = `原始音频：时长 ${buffer.duration.toFixed(2)}s，采样率 ${buffer.sampleRate}Hz`;
+                }).catch((err) => {
+                    alert('音频解码失败：' + err);
+                });
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 核心处理逻辑：创建空白音频 + 按时间点叠加片段
+        function processAudio() {
+            if (!audioContext || !originalBuffer || timePoints.length === 0) {
+                alert('请先上传时间点文件和音频文件！');
+                return;
+            }
+
+            let totalDuration = parseFloat(document.getElementById('totalDuration').value);
+            if (isNaN(totalDuration) || totalDuration <= 0) {
+                if (timePoints.length > 0) {
+                    const maxTime = timePoints.reduce((max, current) => Math.max(max, current), -Infinity);
+                    totalDuration = maxTime + originalBuffer.duration;
+                    document.getElementById('totalDuration').value = totalDuration.toFixed(1);
+                } else {
+                    alert('目标总时长无效！');
+                    return;
+                }
+            }
+
+            // 显示进度条和进度文本
+            const progressBar = document.getElementById('progressBar');
+            const progress = document.getElementById('progress');
+            const progressText = document.getElementById('progressText');
+            progressBar.style.display = 'block';
+            progressText.style.display = 'block';
+            progress.style.width = '0%';
+            progressText.textContent = `处理的时间点：0 / ${timePoints.length}`;
+
+            // 1. 创建空白音频缓冲区
+            const originalSampleRate = originalBuffer.sampleRate;
+            const totalFrames = Math.round(totalDuration * originalSampleRate);
+            const outputBuffer = audioContext.createBuffer(
+                originalBuffer.numberOfChannels,
+                totalFrames,
+                originalSampleRate
+            );
+
+            // 2. 填充静音
+            for (let ch = 0; ch < outputBuffer.numberOfChannels; ch++) {
+                const channelData = outputBuffer.getChannelData(ch);
+                channelData.fill(0); // 初始化为静音
+            }
+
+            // 3. 按时间点叠加原始音频片段
+            timePoints.forEach((time, index) => {
+                const startFrame = Math.round(time * originalSampleRate); // 时间点转帧数
+                const endFrame = startFrame + originalBuffer.length;
+
+                // 检查是否超出空白音频范围
+                if (startFrame >= totalFrames) return; // 超出则跳过
+
+                for (let ch = 0; ch < originalBuffer.numberOfChannels; ch++) {
+                    const srcData = originalBuffer.getChannelData(ch);
+                    const destData = outputBuffer.getChannelData(ch);
+
+                    // 片段叠加
+                    for (let i = 0; i < srcData.length; i++) {
+                        const destIndex = startFrame + i;
+                        if (destIndex < totalFrames) {
+                            destData[destIndex] = srcData[i]; // 替换为原始音频数据
+                        }
+                    }
+                }
+
+                // 更新进度条和进度文本
+                const percent = ((index + 1) / timePoints.length) * 100;
+                progress.style.width = `${percent}%`;
+                progressText.textContent = `处理的时间点：${index + 1} / ${timePoints.length}`;
+            });
+
+            // 4. 根据选择的采样率处理
+            const sampleRateSelect = document.getElementById('sampleRate').value;
+            let finalBuffer = outputBuffer;
+            let finalSampleRate = originalSampleRate;
+
+            if (sampleRateSelect !== 'original') {
+                const targetSampleRate = parseInt(sampleRateSelect);
+                finalBuffer = resampleBuffer(outputBuffer, targetSampleRate);
+                finalSampleRate = targetSampleRate;
+                console.log(`采样率转换：${originalSampleRate}Hz → ${targetSampleRate}Hz`);
+            }
+
+            // 6. 生成预览 URL
+            const blob = bufferToWav(finalBuffer);
+            const audioUrl = URL.createObjectURL(blob);
+            document.getElementById('resultAudio').src = audioUrl;
+            document.getElementById('downloadBtn').style.display = 'block';
+            document.getElementById('audioInfo').textContent = `处理后音频：时长 ${totalDuration}s，采样率 ${finalSampleRate}Hz`;
+
+            console.log('混合完成，总帧数：', totalFrames, '，采样率：', finalSampleRate);
+        }
+
+        // 采样率转换函数（简化版线性插值）
+        function resampleBuffer(buffer, targetSampleRate) {
+            const originalSampleRate = buffer.sampleRate;
+            if (originalSampleRate === targetSampleRate) return buffer;
+
+            const ratio = originalSampleRate / targetSampleRate;
+            const newLength = Math.round(buffer.length / ratio);
+
+            const resampledBuffer = audioContext.createBuffer(
+                buffer.numberOfChannels,
+                newLength,
+                targetSampleRate
+            );
+
+            for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+                const originalData = buffer.getChannelData(ch);
+                const resampledData = resampledBuffer.getChannelData(ch);
+
+                for (let i = 0; i < newLength; i++) {
+                    const originalIndex = i * ratio;
+                    const prevIndex = Math.floor(originalIndex);
+                    const nextIndex = Math.min(prevIndex + 1, buffer.length - 1);
+                    const fraction = originalIndex - prevIndex;
+
+                    // 线性插值
+                    resampledData[i] = originalData[prevIndex] +
+                        fraction * (originalData[nextIndex] - originalData[prevIndex]);
+                }
+            }
+
+            return resampledBuffer;
+        }
+
+        // 将 AudioBuffer 转为 WAV 文件
+        function bufferToWav(buffer) {
+            const numChannels = buffer.numberOfChannels;
+            const sampleRate = buffer.sampleRate;
+            const format = 1;          // PCM
+            const bitDepth = 16;       // 16位
+
+            let interleaved;
+            if (numChannels === 1) {
+                // 单声道音频
+                interleaved = buffer.getChannelData(0);
+            } else {
+                // 多声道音频
+                interleaved = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
+            }
+
+            const dataLength = interleaved.length * 2;
+            const bufferLength = 44 + dataLength;
+            const view = new DataView(new ArrayBuffer(bufferLength));
+
+            // RIFF 头部
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + dataLength, true);
+            writeString(view, 8, 'WAVE');
+
+            // fmt 子块
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, format, true);
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * numChannels * 2, true);
+            view.setUint16(32, numChannels * 2, true);
+            view.setUint16(34, bitDepth, true);
+
+            // data 子块
+            writeString(view, 36, 'data');
+            view.setUint32(40, dataLength, true);
+
+            // 写入音频数据（16位）
+            const offset = 44;
+            for (let i = 0; i < interleaved.length; i++) {
+                view.setInt16(offset + i * 2, interleaved[i] * 32767, true);
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        // 多通道音频 interleaving（仅处理立体声，如需更多通道可扩展）
+        function interleave(ch1, ch2) {
+            const length = ch1.length + ch2.length;
+            const result = new Float32Array(length);
+            let index = 0, inputIndex = 0;
+            while (index < length) {
+                result[index++] = ch1[inputIndex];
+                result[index++] = ch2[inputIndex];
+                inputIndex++;
+            }
+            return result;
+        }
+
+        // 写入字符串到 DataView
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        // 下载处理后的音频
+        function downloadAudio() {
+            const audio = document.getElementById('resultAudio');
+            if (!audio.src) return;
+
+            const link = document.createElement('a');
+            link.href = audio.src;
+            link.download = 'mixed_audio.wav';
+            link.click();
+        }
+    </script>
+</body>
+
+</html>
