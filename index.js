@@ -1,5 +1,5 @@
 import * as fs from 'fs/promises';
-import * as wav from 'node-wav';
+import wav from 'node-wav';
 import { OfflineAudioContext } from 'node-web-audio-api';
 
 class AudioSplicer {
