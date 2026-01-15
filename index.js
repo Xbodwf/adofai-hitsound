@@ -1,6 +1,6 @@
-const fs = require('fs').promises;
-const wav = require('node-wav');
-const { OfflineAudioContext } = require('node-web-audio-api');
+import * as fs from 'fs/promises';
+import wav from 'node-wav';
+import { OfflineAudioContext } from 'node-web-audio-api';
 
 class AudioSplicer {
   constructor() {
